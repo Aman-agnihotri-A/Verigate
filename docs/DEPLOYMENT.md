@@ -1,0 +1,3 @@
+# Deployment Notes
+
+For AWS, run the container on ECS Fargate or EKS behind an Application Load Balancer. Store secrets in AWS Secrets Manager or SSM Parameter Store, use DocumentDB-compatible behavior only after testing PyMongo aggregation compatibility, or use MongoDB Atlas. Restrict inbound app traffic to the ALB security group. Trust `X-Forwarded-For` only from the ALB and derive the left-most client address after validating the proxy chain. Replace the in-memory TPS limiter with Redis/ElastiCache. Send structured logs to CloudWatch and route emergency audit events to a durable queue or object store rather than local disk. Use autoscaling on latency/request count and configure health checks against `/health`.
