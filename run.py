@@ -1,7 +1,10 @@
 """Local and Gunicorn application entrypoint."""
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
 from app import create_app  # noqa: E402
 from app.config import Config  # noqa: E402

@@ -1,49 +1,173 @@
 # VeriGate
 
-VeriGate is a Flask + MongoDB mini verification API gateway implementing API-key authentication, sub-user tracking, IP whitelisting, per-client TPS limits, simulated vendor fallback, a MongoDB vendor-attempt trail, PII-safe audit logging, and MIS analytics.
+VeriGate is a Flask and MongoDB identity-verification API gateway built as a backend engineering assessment. It demonstrates client API-key authentication, sub-user validation, trusted-proxy-aware IP whitelisting, per-client TPS limits, simulated vendor failover, PII-safe audit logging, and administrative MIS analytics.
+
+The external verification vendors are deliberately simulated so timeout, failure, fallback, audit, and reporting behaviour can be tested locally without third-party credentials.
+
+## Key features
+
+- Flask application-factory architecture
+- MongoDB persistence and aggregation pipelines
+- Client authentication through `X-API-Key`
+- Sub-user validation through `X-User-Id`
+- Trusted-proxy-aware client IP extraction
+- Client-specific IP whitelisting
+- Thread-safe per-client TPS limiting
+- Primary and fallback vendor simulation
+- Timeout, failure, mismatch, and success scenarios
+- PII masking and SHA-256 hashing
+- MongoDB audit logging with sanitized JSONL emergency fallback
+- Admin-protected MIS reports with selected CSV exports
+- Synthetic seed data and concurrent load testing
+- Docker, Docker Compose, Pytest, and GitHub Actions support
+
+## Request flow
+
+```text
+Client request
+      |
+      v
+API-key authentication
+      |
+      v
+Sub-user validation
+      |
+      v
+Trusted client-IP resolution
+      |
+      v
+IP-whitelist enforcement
+      |
+      v
+Per-client TPS limiter
+      |
+      v
+Payload validation
+      |
+      v
+Primary vendor
+   /       \
+Success   Failure/timeout
+  |             |
+  |             v
+  |       Fallback vendor
+  |             |
+  +-------------+
+        |
+        v
+PII-safe audit record
+        |
+        v
+Standard API response
+```
+
+## Technology stack
+
+- Python 3.11+
+- Flask 3
+- MongoDB 7+
+- PyMongo
+- Pytest
+- Docker and Docker Compose
+- Gunicorn in the containerized deployment
+
+## Project structure
+
+```text
+app/
+├── audit/          # MongoDB and emergency audit persistence
+├── auth/           # API-key authentication components
+├── mis/            # Administrative analytics endpoints
+├── models/         # Document builders and MongoDB index definitions
+├── rate_limit/     # Per-client TPS limiter
+├── schemas/        # Verification request validation
+├── security/       # IP whitelist, trusted proxies, masking, and hashing
+├── vendors/        # Primary and fallback vendor simulation
+├── config.py
+├── extensions.py
+├── health.py
+├── responses.py
+└── verification.py
+
+docs/               # Assumptions, deployment notes, test results, and examples
+scripts/
+├── seed.py          # Synthetic client, user, and audit data
+└── load_test.py     # Concurrent verification traffic demonstration
+
+tests/              # Automated unit and endpoint tests
+Dockerfile
+docker-compose.yml
+requirements.txt
+run.py
+```
 
 ## Local setup
 
-Requirements: Python 3.11+ and MongoDB 7+.
+### Prerequisites
+
+- Python 3.11 or newer
+- MongoDB 7 or newer
+
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\activate
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 copy .env.example .env
 python scripts/seed.py
 python run.py
 ```
 
-The `.env` file is loaded automatically by both the application entrypoint and seed script. Do not commit it.
+### Linux or macOS
 
-Run tests:
-
-```powershell
-python -m pytest -v
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+cp .env.example .env
+python scripts/seed.py
+python run.py
 ```
 
-## Docker bonus
+The application runs at `http://localhost:5000`. The `.env` file contains local configuration and must not be committed.
 
-Install Docker Desktop separately, then run:
+### Health check
 
-```powershell
-docker compose up --build -d
-docker compose exec app python scripts/seed.py
-docker compose ps
+```bash
+curl http://localhost:5000/health
 ```
 
-Stop the stack:
+## Environment configuration
 
-```powershell
-docker compose down
-```
+Copy `.env.example` to `.env` and adjust values for the local environment.
 
-Docker runs one Gunicorn worker with multiple threads so the process-local TPS limiter remains consistent. Multiple workers or pods would each maintain independent counters; production should replace the limiter with an atomic Redis implementation.
+Important variables include:
+
+| Variable | Purpose |
+|---|---|
+| `SECRET_KEY` | Flask application secret |
+| `MONGO_URI` | MongoDB connection URI |
+| `MONGO_DB_NAME` | Application database name |
+| `ADMIN_API_KEY` | Protects MIS endpoints |
+| `DEFAULT_TPS_LIMIT` | Default transactions-per-second limit |
+| `TRUSTED_PROXY_IPS` | Immediate proxy addresses allowed to supply `X-Forwarded-For` |
+| `TRUST_XFF_HEADER_DEV_ONLY` | Explicit local-development override for forwarded IPs |
+| `EMERGENCY_LOG_PATH` | Sanitized JSONL audit fallback path |
+
+The values in `.env.example` are placeholders or fictional local-development settings, not production credentials.
 
 ## Seeded development data
 
-The seed script creates three fictional clients and three users per client, plus approximately 3,000 synthetic historical logs.
+Run:
+
+```bash
+python scripts/seed.py
+```
+
+The script creates three fictional clients, three users per client, required indexes, and approximately 3,000 synthetic historical audit records.
 
 | Client | API key | Example user | Allowed test IP | TPS |
 |---|---|---|---|---:|
@@ -51,53 +175,235 @@ The seed script creates three fictional clients and three users per client, plus
 | `zetafin` | `zeta-key` | `ze_ops_01` | `103.24.10.6` | 3 |
 | `novahr` | `nova-key` | `no_ops_01` | `103.24.10.7` | 4 |
 
-These credentials and identities are synthetic and only for local assessment use.
+These credentials and identities are synthetic and intended only for local assessment testing.
 
-## Verification endpoint
+## Verification API
 
-`POST /api/v1/verify` requires:
+### Endpoint
 
-- `X-API-Key`
-- `X-User-Id`
-- JSON body with `client_ref_id`, `id_type`, `id_number`, and `name`
+```http
+POST /api/v1/verify
+```
 
-For local testing, `X-Forwarded-For` supplies the synthetic client IP. In production, it is accepted only when the immediate connection is a configured trusted proxy/load balancer, because arbitrary clients can otherwise spoof the header.
+### Required headers
+
+```http
+Content-Type: application/json
+X-API-Key: alpha-key
+X-User-Id: al_ops_01
+X-Forwarded-For: 103.24.10.5
+```
+
+`X-Forwarded-For` is trusted only when the immediate connection comes from a configured trusted proxy, unless the explicit development-only override is enabled.
+
+### Example request
+
+```bash
+curl -X POST http://localhost:5000/api/v1/verify \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: alpha-key" \
+  -H "X-User-Id: al_ops_01" \
+  -H "X-Forwarded-For: 103.24.10.5" \
+  -d '{
+    "client_ref_id": "REF-10001",
+    "id_type": "PAN",
+    "id_number": "ABCDE1234F",
+    "name": "Synthetic User"
+  }'
+```
+
+### Example success response
+
+```json
+{
+  "status": "success",
+  "request_id": "req_123456789abc",
+  "error_code": "VP2000",
+  "data": {
+    "verified": true,
+    "name_match_score": 92,
+    "source": "PRIMARY"
+  },
+  "latency_ms": 436
+}
+```
+
+### Example error response
+
+```json
+{
+  "status": "error",
+  "request_id": "req_123456789abc",
+  "error_code": "VP4010",
+  "message": "Invalid API key"
+}
+```
+
+Exact outcomes vary because vendor behaviour is simulated. Additional request examples are available in `docs/curl_examples.md`.
+
+## Vendor fallback and audit fields
+
+The primary vendor can simulate success, verification mismatch, service failure, or timeout. The fallback vendor is attempted only when the primary vendor fails or times out.
+
+| Field | Meaning |
+|---|---|
+| `vendor_used` | Vendor that produced the final usable result |
+| `fallback_used` | Whether the fallback vendor was attempted |
+| `failover_reason` | Failure or timeout reason from the primary vendor |
+| `vendor_attempts` | PII-free trail of primary and fallback outcomes |
+
+When both vendors fail, `fallback_used` is `true` because fallback was attempted, while `vendor_used` is `null` because neither vendor produced a usable result.
+
+Example:
+
+```json
+{
+  "vendor_used": null,
+  "fallback_used": true,
+  "failover_reason": "VendorFailure",
+  "vendor_attempts": [
+    {
+      "vendor": "PRIMARY",
+      "outcome": "FAILED",
+      "error_type": "VendorFailure"
+    },
+    {
+      "vendor": "FALLBACK",
+      "outcome": "FAILED",
+      "error_type": "VendorFailure"
+    }
+  ]
+}
+```
 
 ## MIS endpoints
 
-All MIS endpoints require `X-Admin-Key` and use MongoDB aggregation pipelines:
+All MIS endpoints require:
 
-- `/api/v1/mis/usage?from=2026-07-01&to=2026-07-07&group_by=client|user|day`
-- `/api/v1/mis/errors?from=2026-07-01&to=2026-07-07`
-- `/api/v1/mis/tps?client_id=alphabank&date=2026-07-05`
-- `/api/v1/mis/fallback?from=2026-07-01&to=2026-07-07`
-- `/api/v1/mis/ips?client_id=alphabank&from=2026-07-01&to=2026-07-07`
+```http
+X-Admin-Key: <configured-admin-key>
+```
 
-The `to` date is inclusive. Usage and errors support `format=csv`.
+Available reports:
 
-## Load/TPS demonstration
+```text
+GET /api/v1/mis/usage
+GET /api/v1/mis/errors
+GET /api/v1/mis/tps
+GET /api/v1/mis/fallback
+GET /api/v1/mis/ips
+```
 
-With the seeded app running:
+Examples:
 
-```powershell
+```text
+/api/v1/mis/usage?from=2026-07-01&to=2026-07-07&group_by=client
+/api/v1/mis/usage?from=2026-07-01&to=2026-07-07&group_by=user
+/api/v1/mis/usage?from=2026-07-01&to=2026-07-07&group_by=day
+/api/v1/mis/errors?from=2026-07-01&to=2026-07-07
+/api/v1/mis/tps?client_id=alphabank&date=2026-07-05
+/api/v1/mis/fallback?from=2026-07-01&to=2026-07-07
+/api/v1/mis/ips?client_id=alphabank&from=2026-07-01&to=2026-07-07
+```
+
+The `to` date is inclusive. Usage and error reports support `format=csv`.
+
+## Running tests
+
+```bash
+python -m pytest -q
+```
+
+Current validated result:
+
+```text
+187 passed
+```
+
+The suite covers application setup, authentication, client/user isolation, trusted proxies, IP whitelisting, masking and hashing, request validation, TPS limiting, vendor fallback, audit persistence, emergency logging, MIS pipelines, seed helpers, and endpoint behaviour.
+
+GitHub Actions runs the same test command on pushes to `main` and pull requests.
+
+## Load and TPS demonstration
+
+Start the seeded application, then run:
+
+```bash
 python scripts/load_test.py
 ```
 
-The script runs mixed traffic for about 60 seconds, uses concurrent per-second bursts to deliberately exceed Alpha Bank's TPS limit, and sends Nova HR traffic from a blocked IP. It prints sent, succeeded, rate-limited, blocked, and other-failure totals per client. Query the MIS endpoints afterward to cross-check the resulting logs.
+The script generates traffic from all three clients, deliberately exceeds Alpha Bank's TPS limit with concurrent bursts, sends blocked Nova HR traffic, and exercises successful and failed vendor outcomes. It prints sent, successful, rate-limited, blocked, and other-failure totals per client. MIS endpoints can then be queried to compare the resulting audit data.
 
-## Indexes
+## Docker setup
 
-- `api_logs(client_id, created_at)`: client/date-range MIS filtering.
-- `api_logs(error_code)`: error distribution queries.
-- `api_logs(created_at)`: global date-range reports.
-- unique `clients(api_key)`: authentication lookup and duplicate prevention.
-- unique `clients(client_id)`: stable client identity.
-- unique `users(client_id, user_id)`: sub-user validation.
+Install Docker Desktop or Docker Engine, then run:
 
-## PII and audit safety
+```bash
+docker compose up --build -d
+docker compose exec app python scripts/seed.py
+docker compose ps
+```
 
-Raw names and identity numbers are never stored in `api_logs`. Audit records contain masked values and SHA-256 hashes. Vendor execution is auditable through `fallback_used`, `failover_reason`, and a PII-free `vendor_attempts` array showing primary/fallback success or failure without storing exception text. A failed Mongo audit write falls back to a sanitized local JSONL record. The local fallback is suitable for single-host resilience only; a distributed deployment should use a durable centralized sink.
+Stop the stack with:
 
-## Submission checklist
+```bash
+docker compose down
+```
 
-See `docs/ASSESSMENT_CHECKLIST.md`. The code package cannot create a meaningful Git history retroactively, so ensure the submitted private repository retains at least 10 meaningful commits.
+The container uses one Gunicorn worker with multiple threads because the assessment limiter is process-local. A multi-worker or multi-pod production deployment should use Redis or another shared atomic rate-limiting store.
+
+## MongoDB indexes
+
+- `api_logs(client_id, created_at)` for client/date-range MIS filtering
+- `api_logs(error_code)` for error distribution reporting
+- `api_logs(created_at)` for global date-range reports
+- unique `clients(api_key)` for authentication lookup and duplicate prevention
+- unique `clients(client_id)` for stable client identity
+- unique `users(client_id, user_id)` for sub-user validation
+
+## Security and privacy decisions
+
+Raw names and identity numbers are never stored in `api_logs`. Audit records contain masked values and SHA-256 hashes for correlation without retaining the original PII.
+
+Vendor execution is represented through `vendor_used`, `fallback_used`, `failover_reason`, and a PII-free `vendor_attempts` list. Exception text is not stored in the normal attempt trail.
+
+If the MongoDB audit write fails, VeriGate attempts to write one sanitized JSONL emergency record. The emergency writer uses an allow-list and removes credential-like content before writing. This fallback is suitable for single-host resilience only; a distributed system should use a centralized durable audit sink.
+
+## Known limitations and assessment trade-offs
+
+- The TPS limiter is process-local and is not suitable for independent workers or pods.
+- The JSONL emergency audit file is local to one host.
+- Verification vendors are simulated rather than real HTTP integrations.
+- The optional circuit breaker is not implemented.
+- Fictional development API keys are stored in plaintext for simple local lookup.
+- MongoDB 7+ is expected for the MIS percentile aggregation.
+
+## Production improvements
+
+- Redis-backed distributed rate limiting
+- High-entropy API keys stored only as hashes, with rotation and revocation
+- Real vendor HTTP adapters with retry budgets and circuit breaking
+- Centralized structured logging and durable emergency audit transport
+- OpenAPI/Swagger documentation
+- Metrics, tracing, and alerting
+- CI linting, type checking, dependency scanning, and container scanning
+
+## AI-assisted development
+
+AI tooling was used as a development assistant for planning, test scaffolding, documentation, and code review. Generated suggestions were inspected, corrected where necessary, and validated through the automated test suite before inclusion. Representative workflow notes are documented in `docs/AI_WORKFLOW.md`.
+
+## Assessment status
+
+- Core verification API: complete
+- API-key and sub-user authentication: complete
+- IP whitelisting: complete
+- TPS limiting: complete
+- Vendor fallback: complete
+- PII-safe audit logging: complete
+- MIS analytics: complete
+- Seed and load-test scripts: complete
+- Docker support: complete
+- Automated tests: 187 passing
+- Meaningful Git history: 10 commits
+
+Additional documentation is available under `docs/`.
