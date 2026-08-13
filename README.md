@@ -1,6 +1,6 @@
 # VeriGate
 
-VeriGate is a Flask and MongoDB identity-verification API gateway built as a backend engineering assessment. It demonstrates client API-key authentication, sub-user validation, trusted-proxy-aware IP whitelisting, per-client TPS limits, simulated vendor failover, PII-safe audit logging, and administrative MIS analytics.
+VeriGate is a production-style Flask and MongoDB identity-verification API gateway designed to demonstrate secure, resilient backend verification workflows.. It demonstrates client API-key authentication, sub-user validation, trusted-proxy-aware IP whitelisting, per-client TPS limits, simulated vendor failover, PII-safe audit logging, and administrative MIS analytics.
 
 The external verification vendors are deliberately simulated so timeout, failure, fallback, audit, and reporting behaviour can be tested locally without third-party credentials.
 
